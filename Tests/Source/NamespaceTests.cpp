@@ -18,54 +18,6 @@ struct NamespaceTests : TestBase
   }
 };
 
-TEST_F (NamespaceTests, Lambda)
-{
-  int value = 1;
-  auto lambda = [&value]
-  {
-    value = 2;
-  };
-
-  luabridge::getGlobalNamespace (L)
-    .addCxxFunction ("fn", lambda);
-
-  runLua ("fn ()");
-  ASSERT_EQ (2, value);
-}
-
-TEST_F (NamespaceTests, StdFunction)
-{
-  int value = 1;
-  std::function <void ()> function = [&value]
-  {
-    value = 2;
-  };
-
-  luabridge::getGlobalNamespace (L)
-    .addFunction ("fn", function);
-
-  runLua ("fn ()");
-  ASSERT_EQ (2, value);
-}
-
-TEST_F (NamespaceTests, StdBind)
-{
-  struct S
-  {
-    int value;
-    void setValue (int v) { value = v; }
-  };
-
-  S s {1};
-  auto bound = std::bind (&S::setValue, &s, 2);
-
-  luabridge::getGlobalNamespace (L)
-    .addCxxFunction ("fn", bound);
-
-  runLua ("fn ()");
-  ASSERT_EQ (2, s.value);
-}
-
 TEST_F (NamespaceTests, Variables)
 {
   int int_ = -10;
@@ -199,11 +151,57 @@ TEST_F (NamespaceTests, ReadOnlyProperties)
   ASSERT_EQ (-10, getProperty <int> ());
 }
 
-#if defined(_WINDOWS) || defined(WIN32)
+TEST_F (NamespaceTests, Lambda)
+{
+  int value = 1;
+  auto lambda = [&value]
+  {
+    value = 2;
+  };
+
+  luabridge::getGlobalNamespace (L)
+    .addFunction ("fn", lambda);
+
+  runLua ("fn ()");
+  ASSERT_EQ (2, value);
+}
+
+TEST_F (NamespaceTests, StdFunction)
+{
+  int value = 1;
+  std::function <void ()> function = [&value]
+  {
+    value = 2;
+  };
+
+  luabridge::getGlobalNamespace (L)
+    .addFunction ("fn", function);
+
+  runLua ("fn ()");
+  ASSERT_EQ (2, value);
+}
+
+TEST_F (NamespaceTests, StdBind)
+{
+  struct S
+  {
+    int value;
+    void setValue (int v) { value = v; }
+  };
+
+  S s{ 1 };
+  auto bound = std::bind (&S::setValue, &s, 2);
+
+  luabridge::getGlobalNamespace (L)
+    .addFunction ("fn", bound);
+
+  runLua ("fn ()");
+  ASSERT_EQ (2, s.value);
+}
 
 namespace {
 
-int __stdcall StdCall (int i)
+int function(int i)
 {
   return i + 10;
 }
@@ -213,11 +211,32 @@ int __stdcall StdCall (int i)
 TEST_F (NamespaceTests, StdCallFunctions)
 {
   luabridge::getGlobalNamespace (L)
-    .addFunction ("StdCall", &StdCall);
+    .addFunction ("fn", &function);
 
-  runLua ("result = StdCall (2)");
+  runLua ("result = fn (2)");
   ASSERT_TRUE (result ().isNumber ());
   ASSERT_EQ (12, result ().cast <int> ());
 }
 
-#endif // _WINDOWS || WIN32
+#ifdef _M_IX86 // Windows 32bit only
+
+namespace {
+
+int __stdcall stdCall (int i)
+{
+  return i + 10;
+}
+
+} // namespace
+
+TEST_F (NamespaceTests, StdCallFunctions)
+{
+  luabridge::getGlobalNamespace (L)
+    .addFunction ("stdCall", &stdCall);
+
+  runLua ("result = stdCall (2)");
+  ASSERT_TRUE (result ().isNumber ());
+  ASSERT_EQ (12, result ().cast <int> ());
+}
+
+#endif // _M_IX86

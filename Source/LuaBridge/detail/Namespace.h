@@ -1076,12 +1076,13 @@ public:
   /**
       Add or replace a free function.
   */
-  template <class FP>
-  Namespace& addFunction (char const* name, FP const fp)
+  template <class R, class... P>
+  Namespace& addFunction (char const* name, R (*fp) (P...))
   {
     assert (lua_istable (L, -1));
 
-    new (lua_newuserdata (L, sizeof (fp))) FP (fp);
+    using FP = R (*) (P...);
+    new (lua_newuserdata (L, sizeof (FP))) FP (fp);
     lua_pushcclosure (L, &CFunc::Call <FP>::f, 1);
     rawsetfield (L, -2, name);
 
@@ -1089,7 +1090,7 @@ public:
   }
 
   template <class F>
-  Namespace& addCxxFunction (char const* name, F const& f)
+  Namespace& addFunction (char const* name, F const& f)
   {
     assert (lua_istable (L, -1));
 
