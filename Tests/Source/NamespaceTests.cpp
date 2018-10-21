@@ -5,6 +5,9 @@
 
 #include "TestBase.h"
 
+#include <functional>
+
+
 struct NamespaceTests : TestBase
 {
   template <class T>
@@ -14,6 +17,54 @@ struct NamespaceTests : TestBase
     return result ().cast <T>();
   }
 };
+
+TEST_F (NamespaceTests, Lambda)
+{
+  int value = 1;
+  auto lambda = [&value]
+  {
+    value = 2;
+  };
+
+  luabridge::getGlobalNamespace (L)
+    .addCxxFunction ("fn", lambda);
+
+  runLua ("fn ()");
+  ASSERT_EQ (2, value);
+}
+
+TEST_F (NamespaceTests, StdFunction)
+{
+  int value = 1;
+  std::function <void ()> function = [&value]
+  {
+    value = 2;
+  };
+
+  luabridge::getGlobalNamespace (L)
+    .addFunction ("fn", function);
+
+  runLua ("fn ()");
+  ASSERT_EQ (2, value);
+}
+
+TEST_F (NamespaceTests, StdBind)
+{
+  struct S
+  {
+    int value;
+    void setValue (int v) { value = v; }
+  };
+
+  S s {1};
+  auto bound = std::bind (&S::setValue, &s, 2);
+
+  luabridge::getGlobalNamespace (L)
+    .addCxxFunction ("fn", bound);
+
+  runLua ("fn ()");
+  ASSERT_EQ (2, s.value);
+}
 
 TEST_F (NamespaceTests, Variables)
 {

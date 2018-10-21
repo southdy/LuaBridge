@@ -28,6 +28,10 @@
 
 #pragma once
 
+#include <functional>
+#include <type_traits>
+
+
 namespace luabridge {
 
 /**
@@ -61,6 +65,17 @@ namespace luabridge {
 template <class MemFn, class D = MemFn>
 struct FuncTraits
 {
+};
+
+template <class R>
+struct FuncTraits <std::function <R ()>>
+{
+  typedef R ReturnType;
+  typedef None Params;
+  static R call (const std::function <R ()>& f, TypeListValues <Params>)
+  {
+    return f ();
+  }
 };
 
 /* Ordinary function pointers. */

@@ -1088,6 +1088,20 @@ public:
     return *this;
   }
 
+  template <class F>
+  Namespace& addCxxFunction (char const* name, F const& f)
+  {
+    assert (lua_istable (L, -1));
+
+    using R = decltype (f ());
+    using Function = std::function <R ()>;
+    new (lua_newuserdata (L, sizeof (Function))) Function (f);
+    lua_pushcclosure (L, &CFunc::Call <Function>::f, 1);
+    rawsetfield (L, -2, name);
+
+    return *this;
+  }
+
   //----------------------------------------------------------------------------
   /**
       Add or replace a lua_CFunction.
