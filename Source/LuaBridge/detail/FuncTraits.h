@@ -67,12 +67,27 @@ struct FuncTraits
 {
 };
 
-template <class R>
-struct FuncTraits <std::function <R ()>>
+template <class R, class... P>
+struct FuncTraits <std::function <R (P...)>>
 {
+  template <class... P>
+  struct MakeTypeList;
+
+  template <class P1, class... P>
+  struct MakeTypeList <P1, P...>
+  {
+    typedef TypeList <P1, typename MakeTypeList <P...>::Result> Result;
+  };
+
+  template <>
+  struct MakeTypeList <>
+  {
+    typedef None Result;
+  };
+
   typedef R ReturnType;
-  typedef None Params;
-  static R call (const std::function <R ()>& f, TypeListValues <Params>)
+  typedef typename MakeTypeList <P...>::Result Params;
+  static R call (const std::function <R (P...)>& f, TypeListValues <Params>)
   {
     return f ();
   }

@@ -169,16 +169,16 @@ TEST_F (NamespaceTests, Lambda)
 TEST_F (NamespaceTests, StdFunction)
 {
   int value = 1;
-  std::function <void ()> function = [&value]
+  std::function <void (int)> function = [&value](int i)
   {
-    value = 2;
+    value = i + 10;
   };
 
   luabridge::getGlobalNamespace (L)
     .addFunction ("fn", function);
 
-  runLua ("fn ()");
-  ASSERT_EQ (2, value);
+  runLua ("fn (2)");
+  ASSERT_EQ (12, value);
 }
 
 TEST_F (NamespaceTests, StdBind)
@@ -189,7 +189,7 @@ TEST_F (NamespaceTests, StdBind)
     void setValue (int v) { value = v; }
   };
 
-  S s{ 1 };
+  S s {1};
   auto bound = std::bind (&S::setValue, &s, 2);
 
   luabridge::getGlobalNamespace (L)

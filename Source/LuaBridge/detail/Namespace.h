@@ -1089,15 +1089,29 @@ public:
     return *this;
   }
 
+  template <class T>
+  struct FnTraits : FnTraits <decltype (&T::operator ())>
+  {
+  };
+
+  template <class ClassType, class ReturnType, class... Args>
+  struct FnTraits <ReturnType (ClassType::*) (Args...)> {
+    typedef std::function <ReturnType (Args...)> Fn;
+  };
+
+  template <class ClassType, class ReturnType, class... Args>
+  struct FnTraits <ReturnType (ClassType::*) (Args...) const> {
+    typedef std::function <ReturnType (Args...)> Fn;
+  };
+
   template <class F>
   Namespace& addFunction (char const* name, F const& f)
   {
     assert (lua_istable (L, -1));
 
-    using R = decltype (f ());
-    using Function = std::function <R ()>;
-    new (lua_newuserdata (L, sizeof (Function))) Function (f);
-    lua_pushcclosure (L, &CFunc::Call <Function>::f, 1);
+    typedef typename FnTraits <F>::Fn Fn;
+    new (lua_newuserdata (L, sizeof (Fn))) Fn (f);
+    lua_pushcclosure (L, &CFunc::Call <Fn>::f, 1);
     rawsetfield (L, -2, name);
 
     return *this;
