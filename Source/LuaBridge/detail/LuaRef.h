@@ -184,23 +184,23 @@ public:
       break;
 
     case LUA_TTABLE:
-      os << "table: " << tostring();
+      os << "table: " << tostring ();
       break;
 
     case LUA_TFUNCTION:
-      os << "function: " << tostring();
+      os << "function: " << tostring ();
       break;
 
     case LUA_TUSERDATA:
-      os << "userdata: " << tostring();
+      os << "userdata: " << tostring ();
       break;
 
     case LUA_TTHREAD:
-      os << "thread: " << tostring();
+      os << "thread: " << tostring ();
       break;
 
     case LUA_TLIGHTUSERDATA:
-      os << "lightuserdata: " << tostring();
+      os << "lightuserdata: " << tostring ();
       break;
 
     default:
@@ -715,6 +715,7 @@ class LuaRef : public LuaRefBase <LuaRef, LuaRef>
   };
 
   friend struct Stack <Proxy>;
+  friend struct Stack <Proxy&>;
 
   //----------------------------------------------------------------------------
   /**
@@ -969,8 +970,8 @@ private:
 
 //------------------------------------------------------------------------------
 /**
-    Stack specialization for LuaRef.
-*/
+ * Stack specialization for `LuaRef`.
+ */
 template <>
 struct Stack <LuaRef>
 {
@@ -987,12 +988,45 @@ struct Stack <LuaRef>
   }
 };
 
+/**
+ * Stack specialization for `LuaRef&`.
+ */
+template <>
+struct Stack <LuaRef&>
+{
+  // The value is const& to prevent a copy construction.
+  //
+  static void push (lua_State* L, LuaRef& v)
+  {
+    v.push (L);
+  }
+
+  static LuaRef get (lua_State* L, int index)
+  {
+    return LuaRef::fromStack (L, index);
+  }
+};
+
 //------------------------------------------------------------------------------
 /**
-    Stack specialization for Proxy.
-*/
+ * Stack specialization for `Proxy`.
+ */
 template <>
 struct Stack <LuaRef::Proxy>
+{
+  // The value is const& to prevent a copy construction.
+  //
+  static void push (lua_State* L, LuaRef::Proxy const& v)
+  {
+    v.push (L);
+  }
+};
+
+/**
+ * Stack specialization for `Proxy&`.
+ */
+template <>
+struct Stack <LuaRef::Proxy&>
 {
   // The value is const& to prevent a copy construction.
   //

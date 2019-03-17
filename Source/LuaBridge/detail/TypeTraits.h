@@ -2,6 +2,7 @@
 /*
   https://github.com/vinniefalco/LuaBridge
   
+  Copyright 2019, Dmitry Tarakanov
   Copyright 2012, Vinnie Falco <vinnie.falco@gmail.com>
 
   License: The MIT License (http://www.opensource.org/licenses/mit-license.php)
@@ -27,6 +28,9 @@
 //==============================================================================
 
 #pragma once
+
+#include <string>
+
 
 namespace luabridge {
 
@@ -122,6 +126,22 @@ struct TypeTraits
     typedef T Type;
   };
   /**@}*/
+};
+
+
+template <class T>
+struct Stack;
+
+template <class T, class Enabled = void>
+struct IsUserdata
+{
+  static const bool VALUE = false;
+};
+
+template <class T>
+struct IsUserdata <T, typename Stack <T>::IsUserdata>
+{
+  static const bool VALUE = true;
 };
 
 } // namespace luabridge

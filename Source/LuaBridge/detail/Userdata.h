@@ -490,7 +490,7 @@ public:
 
 //============================================================================
 /**
-  Wraps a container thet references a class object.
+  Wraps a container that references a class object.
 
   The template argument C is the container type, ContainerTraits must be
   specialized on C or else a compile error will result.
@@ -631,7 +631,7 @@ struct UserdataSharedHelper <C, true>
 template <class C, bool byContainer>
 struct StackHelper
 {
-  static inline void push (lua_State* L, C const& c)
+  static void push (lua_State* L, C const& c)
   {
     UserdataSharedHelper <C,
       TypeTraits::isConst <typename ContainerTraits <C>::Type>::value>::push (L, c);
@@ -640,7 +640,7 @@ struct StackHelper
   typedef typename TypeTraits::removeConst <
     typename ContainerTraits <C>::Type>::Type T;
 
-  static inline C get (lua_State* L, int index)
+  static C get (lua_State* L, int index)
   {
     return Userdata::get <T> (L, index, true);
   }
@@ -675,17 +675,16 @@ struct StackHelper <T, false>
 template <class T>
 struct Stack
 {
-public:
-  static inline void push (lua_State* L, T const& t)
+  typedef void IsUserdata;
+
+  static void push (lua_State* L, T const& value)
   {
-    StackHelper <T,
-      TypeTraits::isContainer <T>::value>::push (L, t);
+    StackHelper <T, TypeTraits::isContainer <T>::value>::push (L, value);
   }
 
-  static inline T get (lua_State* L, int index)
+  static T get (lua_State* L, int index)
   {
-    return StackHelper <T,
-      TypeTraits::isContainer <T>::value>::get (L, index);
+    return StackHelper <T, TypeTraits::isContainer <T>::value>::get (L, index);
   }
 };
 
@@ -700,29 +699,16 @@ public:
 
 // pointer
 template <class T>
-struct Stack <T*>
+struct StackHelper2 <T*, true>
 {
-  static inline void push (lua_State* L, T* const p)
+  typedef T* RetType;
+
+  static void push (lua_State* L, T* value)
   {
-    UserdataPtr::push (L, p);
+    UserdataPtr::push (L, value);
   }
 
-  static inline T* const get (lua_State* L, int index)
-  {
-    return Userdata::get <T> (L, index, false);
-  }
-};
-
-// Strips the const off the right side of *
-template <class T>
-struct Stack <T* const>
-{
-  static inline void push (lua_State* L, T* const p)
-  {
-    UserdataPtr::push (L, p);
-  }
-
-  static inline T* const get (lua_State* L, int index)
+  static T* get (lua_State* L, int index)
   {
     return Userdata::get <T> (L, index, false);
   }
@@ -730,49 +716,18 @@ struct Stack <T* const>
 
 // pointer to const
 template <class T>
-struct Stack <T const*>
+struct StackHelper2 <const T*, true>
 {
-  static inline void push (lua_State* L, T const* const p)
+  typedef const T* RetType;
+
+  static void push (lua_State* L, const T* value)
   {
-    UserdataPtr::push (L, p);
+    UserdataPtr::push (L, value);
   }
 
-  static inline T const* const get (lua_State* L, int index)
+  static const T* get (lua_State* L, int index)
   {
     return Userdata::get <T> (L, index, true);
-  }
-};
-
-// Strips the const off the right side of *
-template <class T>
-struct Stack <T const* const>
-{
-  static inline void push (lua_State* L, T const* const p)
-  {
-    UserdataPtr::push (L, p);
-  }
-
-  static inline T const* const get (lua_State* L, int index)
-  {
-    return Userdata::get <T> (L, index, true);
-  }
-};
-
-// reference
-template <class T>
-struct Stack <T&>
-{
-  static inline void push (lua_State* L, T& t)
-  {
-    UserdataPtr::push (L, &t);
-  }
-
-  static T& get (lua_State* L, int index)
-  {
-    T* const t = Userdata::get <T> (L, index, false);
-    if (!t)
-      luaL_error (L, "nil passed to reference");
-    return *t;
   }
 };
 
@@ -799,9 +754,9 @@ struct RefStackHelper
 template <class T>
 struct RefStackHelper <T, false>
 {
-  typedef T const& return_type;  
+  typedef T const& return_type;
 	
-	static inline void push (lua_State* L, T const& t)
+	static void push (lua_State* L, T const& t)
 	{
 	  UserdataPtr::push (L, &t);
 	}
@@ -817,20 +772,39 @@ struct RefStackHelper <T, false>
     
 };
 
-// reference to const
+// reference
 template <class T>
-struct Stack <T const&>
+struct StackHelper2 <T&, true>
 {
-  typedef RefStackHelper <T, TypeTraits::isContainer <T>::value> helper_t;
-  
-  static inline void push (lua_State* L, T const& t)
+  typedef RefStackHelper <T, TypeTraits::isContainer <T>::value> Helper;
+  typedef typename Helper::return_type RetType;
+
+  static void push (lua_State* L, T& value)
   {
-    helper_t::push (L, t);
+    UserdataPtr::push (L, &value);
   }
 
-  static typename helper_t::return_type get (lua_State* L, int index)
+  static RetType get (lua_State* L, int index)
   {
-    return helper_t::get (L, index);
+    return Helper::get (L, index);
+  }
+};
+
+// reference to const
+template <class T>
+struct StackHelper2 <const T&, true>
+{
+  typedef RefStackHelper <T, TypeTraits::isContainer <T>::value> Helper;
+  typedef typename Helper::return_type RetType;
+
+  static void push (lua_State* L, const T& value)
+  {
+    Helper::push (L, value);
+  }
+
+  static RetType get (lua_State* L, int index)
+  {
+    return Helper::get (L, index);
   }
 };
 
