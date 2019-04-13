@@ -122,11 +122,11 @@ void runTests (lua_State* L)
 
   for (int trial = 0; trial < trials; ++trial)
   {
-    result = luaL_loadstring (L, "a:mf1 ()");
+    result = luaL_loadstring (L, "a.data = a.data");
     if (result != 0)
       lua_error (L);
 
-    int const N = 10000000;
+    int const N = 100000;
 
     Stopwatch sw;
 
@@ -141,17 +141,6 @@ void runTests (lua_State* L)
 
     cout << "Elapsed time: " << seconds << endl;
   }
-}
-
-void runPerformanceTests ()
-{
-  lua_State* L = luaL_newstate ();
-  luaL_openlibs (L);
-
-  addToState (L);
-  runTests (L);
-
-  lua_close (L);
 }
 
 struct PerformanceTests : TestBase

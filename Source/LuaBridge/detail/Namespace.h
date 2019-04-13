@@ -471,9 +471,14 @@ private:
       assert (lua_istable (L, -1));
       rawgetfield (L, -1, name);
       
+      ClassInfo <T>* info;
+
       if (lua_isnil (L, -1))
       {
         lua_pop (L, 1);
+
+        classInfo = new (lua_newuserdata (L, sizeof (ClassInfo <T>))) ClassInfo <T> (L, name);
+        lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getKey ());
 
         createConstTable (name);
         lua_pushcfunction (L, &CFunc::gcMetaMethod <T>);
@@ -495,6 +500,9 @@ private:
       }
       else // namespace table, static table
       {
+        lua_rawgetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getKey ());
+        classInfo = static_cast <ClassInfo <T> > (lua_touserdata (L, -1));
+
         // Map T back from its stored tables
 
         lua_rawgetp(L, LUA_REGISTRYINDEX, ClassInfo <T>::getClassKey());

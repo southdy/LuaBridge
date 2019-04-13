@@ -28,6 +28,9 @@
 
 #pragma once
 
+#include <map>
+
+
 namespace luabridge {
 
 /** Unique Lua registry keys for a class.
@@ -40,6 +43,12 @@ template <class T>
 class ClassInfo
 {
 public:
+  static const void* getKey ()
+  {
+    static char value;
+    return &value;
+  }
+
   /** Get the key for the static table.
 
       The static table holds the static data members, static properties, and
@@ -73,6 +82,106 @@ public:
     static char value;
     return &value;
   }
+
+  ClassInfo (lua_State* L, const char* type)
+    : m_L (L)
+    , m_type (type)
+  {
+  }
+
+  ~ClassInfo()
+  {
+    clear (m_constMethods);
+    clear (m_methods);
+    clear (m_getters);
+    clear (m_setters);
+  }
+
+  void setConstMethod (const char* name)
+  {
+    setFunction (m_constMethods, name);
+  }
+
+  void setMethod (const char* name)
+  {
+    setFunction (m_methods, name);
+  }
+
+  void setGetter (const char* name)
+  {
+    setFunction (m_getters, name);
+  }
+
+  void setSetter (const char* name)
+  {
+    setFunction (m_setters, name);
+  }
+
+  void getConstMethod (const char* name) const
+  {
+    getFunction (m_constMethods, name);
+  }
+
+  void getMethod (const char* name) const
+  {
+    getFunction (m_methods, name);
+  }
+  
+  void getGetter (const char* name) const
+  {
+    getFunction (m_getters, name);
+  }
+
+  void getSetter (const char* name) const
+  {
+    getFunction (m_setters, name);
+  }
+
+private:
+  typedef std::map <std::string, int> FnList;
+
+  void getFunction (const FnList& fnList, const char* name) const
+  {
+    FnList::const_iterator i = fnList.find (name);
+    if (i != fnList.end ())
+    {
+      lua_rawgeti (m_L, LUA_REGISTRYINDEX, i->second);
+    }
+    else
+    {
+      lua_pushnil (m_L);
+    }
+  }
+
+  void setFunction (FnList& fnList, const char* name)
+  {
+    FnList::const_iterator i = fnList.find (name);
+    if (i == fnList.end ())
+    {
+      fnList [name] = luaL_ref (m_L, LUA_REGISTRYINDEX);
+    }
+    else
+    {
+      luaL_unref (m_L, LUA_REGISTRYINDEX, i->second);
+      i->second = luaL_ref (m_L, LUA_REGISTRYINDEX);
+    }
+  }
+
+  void clear (FnList& fnList)
+  {
+    for (FnList::iterator i = fnList.begin (); i != fnList.end (); ++i)
+    {
+      luaL_unref (m_L, LUA_REGISTRYINDEX, i->second);
+    }
+    fnList.clear ();
+  }
+
+  lua_State* m_L;
+  std::string m_type;
+  FnList m_constMethods;
+  FnList m_methods;
+  FnList m_getters;
+  FnList m_setters;
 };
 
 } // namespace luabridge
