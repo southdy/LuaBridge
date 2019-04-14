@@ -163,7 +163,7 @@ Class <int> returnValue ()
 
 } // namespace
 
-TEST_F(ClassTests, PassingUnregisteredClassFromLuaThrows)
+TEST_F (ClassTests, PassingUnregisteredClassFromLuaThrows)
 {
   using Unregistered = Class <int>;
 

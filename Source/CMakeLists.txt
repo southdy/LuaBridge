@@ -11,6 +11,7 @@ source_group ("LuaBridge" FILES ${LUABRIDGE_HEADERS})
 set (LUABRIDGE_DETAIL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/LuaBridge/detail/CFunctions.h
 	${CMAKE_CURRENT_SOURCE_DIR}/LuaBridge/detail/ClassInfo.h
+	${CMAKE_CURRENT_SOURCE_DIR}/LuaBridge/detail/ClassTable.h
 	${CMAKE_CURRENT_SOURCE_DIR}/LuaBridge/detail/Constructor.h
 	${CMAKE_CURRENT_SOURCE_DIR}/LuaBridge/detail/dump.h
 	${CMAKE_CURRENT_SOURCE_DIR}/LuaBridge/detail/FuncTraits.h

@@ -29,11 +29,15 @@
 
 #pragma once
 
+#include <LuaBridge/detail/ClassTable.h>
 #include <LuaBridge/detail/Security.h>
 #include <LuaBridge/detail/TypeTraits.h>
+#include <LuaBridge/detail/dump.h>
 
 #include <stdexcept>
 #include <string>
+#include <Lua/Lua.5.1.5/src/lua.h>
+#include <Lua/Lua.5.2.0/src/lua.h>
 
 namespace luabridge {
 
@@ -109,7 +113,6 @@ private:
   */
   class ClassBase
   {
-  private:
     ClassBase& operator= (ClassBase const& other);
 
   protected:
@@ -117,8 +120,54 @@ private:
 
     lua_State* const L;
     int mutable m_stackSize;
+    ClassTable* m_classTable;
 
-  protected:
+    template <class T>
+    void registerClass (const char* name, const ClassTable* baseClass)
+    {
+      m_classTable = new (lua_newuserdata (L, sizeof (ClassTable))) ClassTable (L, name, baseClass);
+
+      // registry [key] = class
+      lua_pushvalue (L, -1);
+      lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getStaticKey ()); // Stack: namespace, class
+
+      // namespace [name] = class
+      lua_pushvalue(L, -1); // Stack: namespace, class, class
+      rawsetfield(L, -3, name); // Stack: namespace, class
+
+      // class.__metatable = metatable
+      lua_newtable(L);
+      lua_pushvalue(L, -1); // Stack: namespace, class, metatable, metatable
+      lua_setmetatable(L, -3); // Stack: namespace, class, metatable
+
+      lua_pushvalue(L, -1);
+      m_classTable->setMetatable(); // Stack: namespace, class, metatable
+
+      // metatable [identityKey] = class
+      lua_pushvalue(L, -2); // Stack: namespace, class, metatable, class
+      lua_remove(L, -3);  // Stack: namespace, metatable, class
+      lua_rawsetp(L, -2, getIdentityKey()); // Stack: namespace, metatable
+
+      // metatable.__index = indexMetaMethod
+      lua_pushcfunction(L, &indexMetaMethod);
+      rawsetfield(L, -2, "__index"); // Stack: namespace, metatable
+
+      // metatable.__newindex = newindexMetaMethod
+      lua_pushcfunction(L, &newindexMetaMethod);
+      rawsetfield(L, -2, "__newindex"); // Stack: namespace, metatable
+
+      // metatable.__gc = gcMetaMethod
+      lua_pushcfunction(L, &CFunc::gcMetaMethod <T>);
+      rawsetfield(L, -2, "__gc"); // Stack: namespace, metatable
+
+      if (Security::hideMetatables())
+      {
+        // metatable.__metatable = nil
+        lua_pushnil(L);
+        rawsetfield(L, -2, "__metatable");
+      }
+    }
+
     //--------------------------------------------------------------------------
     /**
       __index metamethod for a class.
@@ -132,89 +181,12 @@ private:
     */
     static int indexMetaMethod (lua_State* L)
     {
-      int result = 0;
-
-      assert (lua_isuserdata (L, 1));               // warn on security bypass
-      lua_getmetatable (L, 1);                      // get metatable for object
-      for (;;)
-      {
-        lua_pushvalue (L, 2);                       // push key arg2
-        lua_rawget (L, -2);                         // lookup key in metatable
-        if (lua_iscfunction (L, -1))                // ensure its a cfunction
-        {
-          lua_remove (L, -2);                       // remove metatable
-          result = 1;
-          break;
-        }
-        else if (lua_isnil (L, -1))
-        {
-          lua_pop (L, 1);
-        }
-        else
-        {
-          lua_pop (L, 2);
-          throw std::logic_error ("not a cfunction");
-        }
-
-        rawgetfield (L, -1, "__propget");           // get __propget table
-        if (lua_istable (L, -1))                    // ensure it is a table
-        {
-          lua_pushvalue (L, 2);                     // push key arg2
-          lua_rawget (L, -2);                       // lookup key in __propget
-          lua_remove (L, -2);                       // remove __propget
-          if (lua_iscfunction (L, -1))              // ensure its a cfunction
-          {
-            lua_remove (L, -2);                     // remove metatable
-            lua_pushvalue (L, 1);                   // push class arg1
-            lua_call (L, 1, 1);
-            result = 1;
-            break;
-          }
-          else if (lua_isnil (L, -1))
-          {
-            lua_pop (L, 1);
-          }
-          else
-          {
-            lua_pop (L, 2);
-
-            // We only put cfunctions into __propget.
-            throw std::logic_error ("not a cfunction");
-          }
-        }
-        else
-        {
-          lua_pop (L, 2);
-
-          // __propget is missing, or not a table.
-          throw std::logic_error ("missing __propget table");
-        }
-
-        // It may mean that the field is in __const and it's constness violation.
-        // Don't check that, just return nil
-
-        // Repeat the lookup in the __parent metafield,
-        // or return nil if the field doesn't exist.
-        rawgetfield (L, -1, "__parent");
-        if (lua_istable (L, -1))
-        {
-          // Remove metatable and repeat the search in __parent.
-          lua_remove (L, -2);
-        }
-        else if (lua_isnil (L, -1))
-        {
-          result = 1;
-          break;
-        }
-        else
-        {
-          lua_pop (L, 2);
-
-          throw std::logic_error ("__parent is not a table");
-        }
-      }
-
-      return result;
+      assert (lua_isuserdata (L, 1));
+      lua_getmetatable (L, 1);
+      lua_rawgetp (L, -1, getIdentityKey ());
+      ClassTable* classTable = ClassTable::fromStack (L, -1);
+      classTable->getField (lua_tostring (L, 2), false);
+      return 1;
     }
 
     //--------------------------------------------------------------------------
@@ -293,85 +265,6 @@ private:
       }
     }
 
-    //--------------------------------------------------------------------------
-    /**
-      Create the class table.
-
-      The Lua stack should have the const table on top.
-    */
-    void createClassTable (char const* name)
-    {
-      lua_newtable (L);
-      lua_pushvalue (L, -1);
-      lua_setmetatable (L, -2);
-      lua_pushboolean (L, 1);
-      lua_rawsetp (L, -2, getIdentityKey ());
-      lua_pushstring (L, name);
-      rawsetfield (L, -2, "__type");
-      lua_pushcfunction (L, &indexMetaMethod);
-      rawsetfield (L, -2, "__index");
-      lua_pushcfunction (L, &newindexMetaMethod);
-      rawsetfield (L, -2, "__newindex");
-      lua_newtable (L);
-      rawsetfield (L, -2, "__propget");
-      lua_newtable (L);
-      rawsetfield (L, -2, "__propset");
-
-      lua_pushvalue (L, -2);
-      rawsetfield (L, -2, "__const"); // point to const table
-
-      lua_pushvalue (L, -1);
-      rawsetfield (L, -3, "__class"); // point const table to class table
-
-      if (Security::hideMetatables ())
-      {
-        lua_pushnil (L);
-        rawsetfield (L, -2, "__metatable");
-      }
-    }
-
-    //--------------------------------------------------------------------------
-    /**
-      Create the static table.
-
-      The Lua stack should have:
-        -1 class table
-        -2 const table
-        -3 enclosing namespace
-    */
-    void createStaticTable (char const* name)
-    {
-      lua_newtable (L);
-      lua_newtable (L);
-      lua_pushvalue (L, -1);
-      lua_setmetatable (L, -3);
-      lua_insert (L, -2);
-      rawsetfield (L, -5, name);
-
-#if 0
-      lua_pushlightuserdata (L, this);
-      lua_pushcclosure (L, &tostringMetaMethod, 1);
-      rawsetfield (L, -2, "__tostring");
-#endif
-      lua_pushcfunction (L, &CFunc::indexMetaMethod);
-      rawsetfield (L, -2, "__index");
-      lua_pushcfunction (L, &CFunc::newindexMetaMethod);
-      rawsetfield (L, -2, "__newindex");
-      lua_newtable (L);
-      rawsetfield (L, -2, "__propget");
-      lua_newtable (L);
-      rawsetfield (L, -2, "__propset");
-
-      lua_pushvalue (L, -2);
-      rawsetfield (L, -2, "__class"); // point to class table
-
-      if (Security::hideMetatables ())
-      {
-        lua_pushnil (L);
-        rawsetfield (L, -2, "__metatable");
-      }
-    }
-
     //==========================================================================
     /**
       lua_CFunction to construct a class object wrapped in a container.
@@ -420,6 +313,7 @@ private:
     explicit ClassBase (lua_State* L_)
       : L (L_)
       , m_stackSize (0)
+      , m_classTable (NULL)
     {
     }
 
@@ -430,6 +324,7 @@ private:
     ClassBase (ClassBase const& other)
       : L (other.L)
       , m_stackSize (0)
+      , m_classTable (other.m_classTable)
     {
       m_stackSize = other.m_stackSize;
       other.m_stackSize = 0;
@@ -463,57 +358,28 @@ private:
     /**
       Register a new class or add to an existing class registration.
     */
-    Class (char const* name, Namespace const* parent) : ClassBase (parent->L)
+    Class (char const* name, Namespace const* parent)
+      : ClassBase (parent->L)
     {
-      m_stackSize = parent->m_stackSize + 3;
+      m_stackSize = parent->m_stackSize + 1;
       parent->m_stackSize = 0;
 
       assert (lua_istable (L, -1));
       rawgetfield (L, -1, name);
-      
-      ClassInfo <T>* info;
 
-      if (lua_isnil (L, -1))
+      if (lua_isnil (L, -1)) // Stack: namespace, nil
       {
         lua_pop (L, 1);
 
-        classInfo = new (lua_newuserdata (L, sizeof (ClassInfo <T>))) ClassInfo <T> (L, name);
-        lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getKey ());
-
-        createConstTable (name);
-        lua_pushcfunction (L, &CFunc::gcMetaMethod <T>);
-        rawsetfield (L, -2, "__gc");
-
-        createClassTable (name);
-        lua_pushcfunction (L, &CFunc::gcMetaMethod <T>);
-        rawsetfield (L, -2, "__gc");
-
-        createStaticTable (name);
-
-        // Map T back to its tables.
-        lua_pushvalue (L, -1);
-        lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getStaticKey ());
-        lua_pushvalue (L, -2);
-        lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getClassKey ());
-        lua_pushvalue (L, -3);
-        lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getConstKey ());
+        registerClass <T> (name, NULL);
       }
-      else // namespace table, static table
+      else // Stack: namespace, class
       {
-        lua_rawgetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getKey ());
-        classInfo = static_cast <ClassInfo <T> > (lua_touserdata (L, -1));
+        lua_rawgetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getStaticKey ());
+        m_classTable = ClassTable::fromStack (L, -1);
+        lua_pop (L, 1); // Stack: namespace
 
-        // Map T back from its stored tables
-
-        lua_rawgetp(L, LUA_REGISTRYINDEX, ClassInfo <T>::getClassKey());
-        // namespace table, static table, class table
-
-        lua_rawgetp(L, LUA_REGISTRYINDEX, ClassInfo <T>::getConstKey());
-        // namespace table, static table, class table, const table
-
-        // Reverse the top 3 stack elements
-        lua_insert (L, -3);
-        lua_insert (L, -2);
+        m_classTable->getMetatable (); // Stack: namespace, metatable
       }
     }
 
@@ -521,48 +387,36 @@ private:
     /**
       Derive a new class.
     */
-    Class (char const* name, Namespace const* parent, void const* const staticKey)
+    Class (char const* name, Namespace const* parent, const void* baseKey)
       : ClassBase (parent->L)
     {
-      m_stackSize = parent->m_stackSize + 3;
+      m_stackSize = parent->m_stackSize + 1;
       parent->m_stackSize = 0;
 
-      assert (lua_istable (L, -1));
+      assert (lua_istable(L, -1));
+      rawgetfield (L, -1, name);
 
-      createConstTable (name);
-      lua_pushcfunction (L, &CFunc::gcMetaMethod <T>);
-      rawsetfield (L, -2, "__gc");
+      if (!lua_isnil (L, -1)) // Stack: namespace, class
+      {
+        lua_pop (L, 1);
+        throw std::logic_error ("Cannot derive registered class: " + std::string (name));
+      }
 
-      createClassTable (name);
-      lua_pushcfunction (L, &CFunc::gcMetaMethod <T>);
-      rawsetfield (L, -2, "__gc");
+      lua_rawgetp (L, LUA_REGISTRYINDEX, baseKey);
+      if (!lua_isuserdata (L, -1))
+      {
+        throw std::logic_error ("Base class for " + std::string (name) + " is not registered");
+      }
 
-      createStaticTable (name);
-
-      lua_rawgetp (L, LUA_REGISTRYINDEX, staticKey);
-      assert (lua_istable (L, -1));
-      rawgetfield (L, -1, "__class");
-      assert (lua_istable (L, -1));
-      rawgetfield (L, -1, "__const");
-      assert (lua_istable (L, -1));
-
-      rawsetfield (L, -6, "__parent");
-      rawsetfield (L, -4, "__parent");
-      rawsetfield (L, -2, "__parent");
-
-      lua_pushvalue (L, -1);
-      lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getStaticKey ());
-      lua_pushvalue (L, -2);
-      lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getClassKey ());
-      lua_pushvalue (L, -3);
-      lua_rawsetp (L, LUA_REGISTRYINDEX, ClassInfo <T>::getConstKey ());
+      const ClassTable* baseClass = ClassTable::fromStack (L, -1);
+      registerClass <T> (name, baseClass);
     }
 
     //--------------------------------------------------------------------------
     /**
       Continue registration in the enclosing namespace.
     */
-    Namespace endClass ()
+    Namespace endClass () const
     {
       return Namespace (this);
     }
@@ -576,15 +430,10 @@ private:
     {
       assert (lua_istable (L, -1));
 
-      rawgetfield (L, -1, "__propget");
-      assert (lua_istable (L, -1));
       lua_pushlightuserdata (L, pu);
       lua_pushcclosure (L, &CFunc::getVariable <U>, 1);
-      rawsetfield (L, -2, name);
-      lua_pop (L, 1);
+      m_classTable->setGetter (name);
 
-      rawgetfield (L, -1, "__propset");
-      assert (lua_istable (L, -1));
       if (isWritable)
       {
         lua_pushlightuserdata (L, pu);
@@ -595,8 +444,7 @@ private:
         lua_pushstring (L, name);
         lua_pushcclosure (L, &CFunc::readOnlyError, 1);
       }
-      rawsetfield (L, -2, name);
-      lua_pop (L, 1);
+      m_classTable->setSetter(name);
 
       return *this;
     }
@@ -806,7 +654,7 @@ private:
       {
         throw std::logic_error (GC + " metamethod registration is forbidden");
       }
-      CFunc::CallMemberFunctionHelper <MemFn, FuncTraits <MemFn>::isConstMemberFunction>::add (L, name, mf);
+      CFunc::CallMemberFunctionHelper <MemFn, FuncTraits <MemFn>::isConstMemberFunction>::add (L, *m_classTable, name, mf);
       return *this;
     }
 
@@ -820,7 +668,7 @@ private:
       assert (lua_istable (L, -1));
       new (lua_newuserdata (L, sizeof (mfp))) MFP (mfp);
       lua_pushcclosure (L, &CFunc::CallMemberCFunction <T>::f, 1);
-      rawsetfield (L, -3, name); // class table
+      m_classTable->setMethod (name);
 
       return *this;
     }
@@ -856,9 +704,8 @@ private:
     template <class MemFn, class C>
     Class <T>& addConstructor ()
     {
-      lua_pushcclosure (L,
-        &ctorContainerProxy <typename FuncTraits <MemFn>::Params, C>, 0);
-      rawsetfield(L, -2, "__call");
+      lua_pushcclosure (L, &ctorContainerProxy <typename FuncTraits <MemFn>::Params, C>, 0);
+      rawsetfield (L, -2, "__call");
 
       return *this;
     }
@@ -866,9 +713,8 @@ private:
     template <class MemFn>
     Class <T>& addConstructor ()
     {
-      lua_pushcclosure (L,
-        &ctorPlacementProxy <typename FuncTraits <MemFn>::Params, T>, 0);
-      rawsetfield(L, -2, "__call");
+      lua_pushcclosure (L, &ctorPlacementProxy <typename FuncTraits <MemFn>::Params, T>, 0);
+      rawsetfield (L, -2, "__call");
 
       return *this;
     }
@@ -952,9 +798,9 @@ private:
     : L (child->L)
     , m_stackSize (0)
   {
-    m_stackSize = child->m_stackSize - 3;
-    child->m_stackSize = 3;
-    child->pop (3);
+    m_stackSize = child->m_stackSize - 1;
+    child->m_stackSize = 1;
+    child->pop (1);
   }
 
 public:
@@ -994,7 +840,7 @@ public:
   /**
       Open a new or existing namespace for registrations.
   */
-  Namespace beginNamespace (char const* name)
+  Namespace beginNamespace (char const* name) const
   {
     return Namespace (name, this);
   }
@@ -1005,7 +851,7 @@ public:
 
       Do not use this on the global namespace.
   */
-  Namespace endNamespace ()
+  Namespace endNamespace () const
   {
     return Namespace (this);
   }
@@ -1140,7 +986,7 @@ public:
   template <class T, class U>
   Class <T> deriveClass (char const* name)
   {
-    return Class <T> (name, this, ClassInfo <U>::getStaticKey ());
+    return Class <T> (name, this, ClassInfo <T>::getStaticKey ());
   }
 };
 

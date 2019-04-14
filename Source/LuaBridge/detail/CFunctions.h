@@ -28,7 +28,10 @@
 
 #pragma once
 
+#include <LuaBridge/detail/ClassTable.h>
+
 #include <string>
+
 
 namespace luabridge {
 
@@ -47,58 +50,9 @@ struct CFunc
   */
   static int indexMetaMethod (lua_State* L)
   {
-    int result = 0;
-    lua_getmetatable (L, 1);                // push metatable of arg1
-    for (;;)
-    {
-      lua_pushvalue (L, 2);                 // push key arg2
-      lua_rawget (L, -2);                   // lookup key in metatable
-      if (lua_isnil (L, -1))                // not found
-      {
-        lua_pop (L, 1);                     // discard nil
-        rawgetfield (L, -1, "__propget");   // lookup __propget in metatable
-        lua_pushvalue (L, 2);               // push key arg2
-        lua_rawget (L, -2);                 // lookup key in __propget
-        lua_remove (L, -2);                 // discard __propget
-        if (lua_iscfunction (L, -1))
-        {
-          lua_remove (L, -2);               // discard metatable
-          lua_pushvalue (L, 1);             // push arg1
-          lua_call (L, 1, 1);               // call cfunction
-          result = 1;
-          break;
-        }
-        else
-        {
-          assert (lua_isnil (L, -1));
-          lua_pop (L, 1);                   // discard nil and fall through
-        }
-      }
-      else
-      {
-        assert (lua_istable (L, -1) || lua_iscfunction (L, -1));
-        lua_remove (L, -2);
-        result = 1;
-        break;
-      }
-
-      rawgetfield (L, -1, "__parent");
-      if (lua_istable (L, -1))
-      {
-        // Remove metatable and repeat the search in __parent.
-        lua_remove (L, -2);
-      }
-      else
-      {
-        // Discard metatable and return nil.
-        assert (lua_isnil (L, -1));
-        lua_remove (L, -2);
-        result = 1;
-        break;
-      }
-    }
-
-    return result;
+    ClassTable* classTable = ClassTable::fromStack (L, -1);
+    classTable->getField (lua_tostring (L, lua_upvalueindex (1)), false);
+    return 1;
   }
 
   //----------------------------------------------------------------------------
@@ -111,44 +65,10 @@ struct CFunc
   */
   static int newindexMetaMethod (lua_State* L)
   {
-    int result = 0;
-    lua_getmetatable (L, 1);                // push metatable of arg1
-    for (;;)
-    {
-      rawgetfield (L, -1, "__propset");     // lookup __propset in metatable
-      assert (lua_istable (L, -1));
-      lua_pushvalue (L, 2);                 // push key arg2
-      lua_rawget (L, -2);                   // lookup key in __propset
-      lua_remove (L, -2);                   // discard __propset
-      if (lua_iscfunction (L, -1))          // ensure value is a cfunction
-      {
-        lua_remove (L, -2);                 // discard metatable
-        lua_pushvalue (L, 3);               // push new value arg3
-        lua_call (L, 1, 0);                 // call cfunction
-        result = 0;
-        break;
-      }
-      else
-      {
-        assert (lua_isnil (L, -1));
-        lua_pop (L, 1);
-      }
-
-      rawgetfield (L, -1, "__parent");
-      if (lua_istable (L, -1))
-      {
-        // Remove metatable and repeat the search in __parent.
-        lua_remove (L, -2);
-      }
-      else
-      {
-        assert (lua_isnil (L, -1));
-        lua_pop (L, 2);
-        result = luaL_error (L, "no writable variable '%s'", lua_tostring (L, 2));
-      }
-    }
-
-    return result;
+    ClassTable* classTable = static_cast <ClassTable*> (lua_touserdata (L, -1));
+    assert (classTable);
+    classTable->getSetter (lua_tostring (L, lua_upvalueindex (1)));
+    return 1;
   }
 
   //----------------------------------------------------------------------------
@@ -159,11 +79,7 @@ struct CFunc
   */
   static int readOnlyError (lua_State* L)
   {
-    std::string s;
-
-    s = s + "'" + lua_tostring (L, lua_upvalueindex (1)) + "' is read-only";
-
-    return luaL_error (L, s.c_str ());
+    return luaL_error (L, "'%s' is read-only", lua_tostring (L, lua_upvalueindex (1)));
   }
 
   //----------------------------------------------------------------------------
@@ -423,24 +339,24 @@ struct CFunc
   template <class MemFnPtr, bool isConst>
   struct CallMemberFunctionHelper
   {
-    static void add (lua_State* L, char const* name, MemFnPtr mf)
+    static void add (lua_State* L, ClassTable& classTable, char const* name, MemFnPtr mf)
     {
       new (lua_newuserdata (L, sizeof (MemFnPtr))) MemFnPtr (mf);
       lua_pushcclosure (L, &CallConstMember <MemFnPtr>::f, 1);
       lua_pushvalue (L, -1);
-      rawsetfield (L, -5, name); // const table
-      rawsetfield (L, -3, name); // class table
+      classTable.setConstMethod (name);
+      classTable.setMethod (name);
     }
   };
 
   template <class MemFnPtr>
   struct CallMemberFunctionHelper <MemFnPtr, false>
   {
-    static void add (lua_State* L, char const* name, MemFnPtr mf)
+    static void add (lua_State* L, ClassTable& classTable, char const* name, MemFnPtr mf)
     {
       new (lua_newuserdata (L, sizeof (MemFnPtr))) MemFnPtr (mf);
       lua_pushcclosure (L, &CallMember <MemFnPtr>::f, 1);
-      rawsetfield (L, -3, name); // class table
+      classTable.setMethod (name);
     }
   };
 

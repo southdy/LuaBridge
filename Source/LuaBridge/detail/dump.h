@@ -97,6 +97,8 @@ inline void dumpValue (lua_State* L, int index, std::ostream& stream, unsigned i
 
 inline void dumpTable (lua_State* L, int index, std::ostream& stream, unsigned indent)
 {
+  stream << "table(" << lua_topointer (L, index) << ")";
+  return;
   stream << "{";
   lua_pushnil (L); // Initial key
   if (lua_next (L, -2))
