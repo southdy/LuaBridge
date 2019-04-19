@@ -80,4 +80,4 @@ target_link_libraries (LuaBridgeTests52
 )
 
 # Fix runtime library link options by gtest macro
-fix_default_compiler_settings_()
+fix_default_compiler_settings_ ()

@@ -21,12 +21,26 @@ struct ClassTests : TestBase
 
 namespace {
 
-template <class T>
-struct Class
+struct EmptyClass
 {
+};
+
+template <class T, class BaseClass = EmptyClass>
+struct Class : BaseClass
+{
+  Class ()
+    : data ()
+  {
+  }
+
   Class (T data)
     : data (data)
   {
+  }
+
+  static Class <T, BaseClass> staticFunction (Class <T, BaseClass> value)
+  {
+    return value;
   }
 
   std::string toString () const
@@ -36,49 +50,49 @@ struct Class
     return stream.str ();
   }
 
-  bool operator== (const Class <T>& rhs) const
+  bool operator== (const Class <T, BaseClass>& rhs) const
   {
     return data == rhs.data;
   }
 
-  bool operator< (const Class <T>& rhs) const
+  bool operator< (const Class <T, BaseClass>& rhs) const
   {
     return data < rhs.data;
   }
 
-  bool operator<= (const Class <T>& rhs) const
+  bool operator<= (const Class <T, BaseClass>& rhs) const
   {
     return data <= rhs.data;
   }
 
-  Class <T> operator+ (const Class <T>& rhs) const
+  Class <T, BaseClass> operator+ (const Class <T, BaseClass>& rhs) const
   {
     return Class <T> (data + rhs.data);
   }
 
-  Class <T> operator- (const Class <T>& rhs) const
+  Class <T, BaseClass> operator- (const Class <T, BaseClass>& rhs) const
   {
-    return Class <T> (data - rhs.data);
+    return Class <T, BaseClass> (data - rhs.data);
   }
 
-  Class <T> operator* (const Class <T>& rhs) const
+  Class <T, BaseClass> operator* (const Class <T, BaseClass>& rhs) const
   {
-    return Class <T> (data * rhs.data);
+    return Class <T, BaseClass> (data * rhs.data);
   }
 
-  Class <T> operator/ (const Class <T>& rhs) const
+  Class <T, BaseClass> operator/ (const Class <T, BaseClass>& rhs) const
   {
-    return Class <T> (data / rhs.data);
+    return Class <T, BaseClass> (data / rhs.data);
   }
 
-  Class <T> operator% (const Class <T>& rhs) const
+  Class <T, BaseClass> operator% (const Class <T>& rhs) const
   {
-    return Class <T> (data % rhs.data);
+    return Class <T, BaseClass> (data % rhs.data);
   }
 
-  Class <T> operator() (T param)
+  Class <T, BaseClass> operator() (T param)
   {
-    return Class <T> (param);
+    return Class <T, BaseClass> (param);
   }
 
   int len () const
@@ -86,9 +100,9 @@ struct Class
     return data;
   }
 
-  Class <T> negate () const
+  Class <T, BaseClass> negate () const
   {
-    return Class <T> (-data);
+    return Class <T, BaseClass> (-data);
   }
 
   T method (T value)
@@ -101,18 +115,22 @@ struct Class
     return value;
   }
 
-  static T getData (const Class* object)
+  static T getData (const Class <T, BaseClass>* object)
   {
     return object->data;
   }
 
-  static void setData (Class* object, T data)
+  static void setData (Class <T, BaseClass>* object, T data)
   {
     object->data = data;
   }
 
   mutable T data;
+  static T staticData;
 };
+
+template <class T, class BaseClass>
+T Class <T, BaseClass>::staticData = {};
 
 } // namespace
 
@@ -343,6 +361,135 @@ TEST_F (ClassTests, ReadOnlyProperties)
   ASSERT_TRUE (result () ["data"].isTable ());
   ASSERT_TRUE (result () ["data"] ["a"].isNumber ());
   ASSERT_EQ (31, result () ["data"] ["a"].cast <int> ());
+}
+
+TEST_F (ClassTests, StaticFunction)
+{
+  using Int = Class <int>;
+
+  luabridge::getGlobalNamespace (L)
+    .beginClass <Int> ("Int")
+    .addConstructor <void (*) (int)> ()
+    .addStaticFunction ("static", &Int::staticFunction)
+    .endClass ();
+
+  runLua ("result = Int.static (Int (35))");
+  ASSERT_EQ (35, result ().cast <Int> ().data);
+}
+
+TEST_F (ClassTests, DeriveStaticFunction)
+{
+  using Base = Class <std::string>;
+  using Derived = Class <int, Base>;
+
+  luabridge::getGlobalNamespace (L)
+    .beginClass <Base> ("Base")
+    .addConstructor <void (*) (std::string)> ()
+    .addStaticFunction ("static", &Base::staticFunction)
+    .endClass ()
+    .deriveClass <Derived, Base> ("Derived")
+    .endClass ();
+
+  runLua ("result = Derived.static (Base ('abc'))");
+  ASSERT_EQ ("abc", result ().cast <Base> ().data);
+}
+
+TEST_F (ClassTests, OverrideStaticFunction)
+{
+  using Base = Class <std::string>;
+  using Derived = Class <int, Base>;
+
+  luabridge::getGlobalNamespace (L)
+    .beginClass <Base> ("Base")
+    .addConstructor <void (*) (std::string)> ()
+    .addStaticFunction ("staticFunction", &Base::staticFunction)
+    .endClass ()
+    .deriveClass <Derived, Base> ("Derived")
+    .addConstructor <void (*) (int)> ()
+    .addStaticFunction ("staticFunction", &Derived::staticFunction)
+    .endClass ();
+
+  runLua ("result = Base.staticFunction (Base ('abc'))");
+  ASSERT_EQ ("abc", result ().cast <Base> ().data);
+
+  runLua ("result = Derived.staticFunction (Derived (123))");
+  ASSERT_EQ (123, result ().cast <Derived> ().data);
+}
+
+TEST_F (ClassTests, StaticData)
+{
+  using Int = Class <int>;
+
+  luabridge::getGlobalNamespace (L)
+    .beginClass <Int> ("Int")
+    .addStaticData ("staticData", &Int::staticData, true)
+    .endClass ();
+
+  Int::staticData = 10;
+
+  runLua ("result = Int.staticData");
+  ASSERT_TRUE (result ().isNumber ());
+  ASSERT_EQ (10, result ().cast <int> ());
+
+  runLua ("Int.staticData = 20");
+  ASSERT_EQ (20, Int::staticData);
+}
+
+TEST_F (ClassTests, DeriveStaticData)
+{
+  using Base = Class <float>;
+  using Derived = Class <int, Base>;
+
+  luabridge::getGlobalNamespace (L)
+    .beginClass <Base> ("Base")
+    .addStaticData ("staticData", &Base::staticData, true)
+    .endClass ()
+    .deriveClass <Derived, Base> ("Derived")
+    .endClass ();
+
+  Base::staticData = 1.23f;
+  Derived::staticData = 50;
+
+  runLua ("result = Derived.staticData");
+  ASSERT_TRUE (result ().isNumber ());
+  ASSERT_EQ (1.23f, result ().cast <float> ());
+
+  runLua ("Derived.staticData = -3.14");
+  ASSERT_EQ (-3.14f, Base::staticData);
+  ASSERT_EQ (50, Derived::staticData);
+}
+
+TEST_F (ClassTests, OverrideStaticData)
+{
+  using Base = Class <float>;
+  using Derived = Class <int, Base>;
+
+  luabridge::getGlobalNamespace (L)
+    .beginClass <Base> ("Base")
+    .addStaticData ("staticData", &Base::staticData, true)
+    .endClass ()
+    .deriveClass <Derived, Base> ("Derived")
+    .addStaticData("staticData", &Derived::staticData, true)
+    .endClass ();
+
+  Base::staticData = 1.23f;
+  Derived::staticData = 50;
+
+  runLua ("result = Base.staticData");
+  ASSERT_TRUE (result ().isNumber ());
+  ASSERT_EQ (1.23f, result ().cast <float> ());
+
+  runLua ("result = Derived.staticData");
+  ASSERT_TRUE (result ().isNumber ());
+  ASSERT_EQ (50, result ().cast <int> ());
+  
+  runLua ("Base.staticData = -3.14");
+  ASSERT_EQ (-3.14f, Base::staticData);
+  ASSERT_EQ (50, Derived::staticData);
+
+  runLua ("Derived.staticData = 7");
+  ASSERT_EQ (-3.14f, Base::staticData);
+  ASSERT_EQ (7, Derived::staticData);
 }
 
 TEST_F (ClassTests, Metamethod__call)
@@ -662,7 +809,7 @@ TEST_F (ClassTests, Metamethod__gcForbidden)
 
   ASSERT_THROW (
     luabridge::getGlobalNamespace(L)
-      .beginClass <Int>("Int")
+      .beginClass <Int> ("Int")
       .addFunction("__gc", &Int::method)
       .endClass(),
     std::exception);
